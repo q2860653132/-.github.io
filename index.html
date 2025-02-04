@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>中国地图可视化</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        #map-container {
+            width: 100%;
+            height: 50vh;  /* 视口高度的50% */
+            min-height: 300px;
+        }
+        #operation-panel {
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px 8px 0 0;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            position: relative;
+            margin-top: -20px;
+        }
+        #homestay-list {
+            margin-top: 20px;
+            padding: 10px;
+            background: #fff;
+            border-radius: 4px;
+            min-height: 100px;
+        }
+        .homestay-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        .delete-btn {
+            color: #dc3545;
+            cursor: pointer;
+            padding: 8px 12px;
+            border: none;
+            background: none;
+            font-size: 14px;
+            transition: color 0.3s;
+        }
+        .delete-btn:hover {
+            color: #bd2130;
+        }
+        #add-form {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        @media (max-width: 600px) {
+            #add-form {
+                grid-template-columns: 1fr;
+            }
+        }
+        select, input, button {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        select {
+            background-color: #fff;
+        }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background: #45a049;
+        }
+        .homestay-info {
+            margin-top: 15px;
+            background: #fff;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        #selected-city {
+            padding: 15px;
+            margin: 0;
+            background: #f8f9fa;
+            border-bottom: 1px solid #eee;
+            color: #333;
+            font-size: 1rem;
+        }
+        .homestay-list {
+            list-style: none;
+            padding: 0;
+        }
+        .homestay-list li {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .city-marker {
+            cursor: pointer;
+        }
+        .toast {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 30px;
+            display: none;
+            animation: fadeIn 0.5s, fadeOut 0.5s 2.5s;
+            z-index: 1000;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 14px;
+        }
+        @keyframes fadeIn {
+            from {opacity: 0;}
+            to {opacity: 1;}
+        }
+        @keyframes fadeOut {
+            from {opacity: 1;}
+            to {opacity: 0;}
+        }
+    </style>
+    <!-- 引入 ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <!-- 引入城市数据 -->
+    <script src="data.js"></script>
+</head>
+<body>
+    <div id="map-container"></div>
+    <div id="operation-panel">
+        <h3>民宿管理系统</h3>
+        <div id="add-form">
+            <select id="province-select">
+                <option value="">请选择省份</option>
+            </select>
+            <input type="text" id="homestay-input" placeholder="输入民宿名称">
+            <button onclick="addHomestay()">添加民宿</button>
+        </div>
+        <div id="homestay-info" class="homestay-info">
+            <h4 id="selected-city">未选择城市</h4>
+            <ul class="homestay-list" id="homestay-list">
+                <!-- 民宿列表将在这里动态显示 -->
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 存储城市民宿数据
+        let cityHomestays = JSON.parse(localStorage.getItem('cityHomestays')) || {};
+        let myChart = null;
+
+        // 初始化城市选择器
+        function initCitySelect() {
+            const provinceSelect = document.getElementById('province-select');
+            // 添加省份选项
+            rawData.forEach(province => {
+                const option = document.createElement('option');
+                option.value = JSON.stringify({
+                    name: province.name,
+                    log: province.log,
+                    lat: province.lat
+                });
+                option.textContent = province.name;
+                provinceSelect.appendChild(option);
+            });
+        }
+
+        // 注册地图数据
+        fetch('https://geo.datav.aliyun.com/areas_v3/bound/100000_full.json')
+            .then(response => response.json())
+            .then(data => {
+                echarts.registerMap('china', data);
+                // 初始化地图实例
+                myChart = echarts.init(document.getElementById('map-container'));
+
+                // 处理原始数据，转换为地图所需格式
+                var rawData = [
+                    {
+                        "name": "北京市",
+                        "log": "116.46",
+                        "lat": "39.92",
+                        "children": []
+                    },
+                    {
+                        "name": "天津市",
+                        "log": "117.2",
+                        "lat": "39.13",
+                        "children": []
+                    },
+                    {
+                        "name": "上海市",
+                        "log": "121.48",
+                        "lat": "31.22",
+                        "children": []
+                    },
+                    {
+                        "name": "河北省",
+                        "log": "114.48",
+                        "lat": "38.03",
+                        "children": []
+                    },
+                    // ... 其他省份数据保持不变
+                ];
+                
+                var data = rawData
+                    .map(function(province) {
+                        return {
+                            name: province.name || '未知',
+                            value: [parseFloat(province.log), parseFloat(province.lat)],
+                            children: []
+                        };
+                    });
+
+                // 配置项
+                var option = {
+                    title: {
+                        text: '中国城市分布图',
+                        left: 'center',
+                        textStyle: {
+                            fontSize: 24,
+                            fontWeight: 'bold',
+                            color: '#333'
+                        },
+                        padding: 20
+                    },
+                    backgroundColor: '#ffffff',
+                    tooltip: {
+                        trigger: 'item',
+                        backgroundColor: 'rgba(0,0,0,0.7)',
+                        borderColor: '#fff',
+                        borderWidth: 1,
+                        textStyle: {
+                            color: '#fff'
+                        },
+                        formatter: function(params) {
+                            return '<div style="padding: 3px">' +
+                                   '<strong>' + params.name + '</strong><br/>' +
+                                   '经度：' + params.value[0].toFixed(2) + '<br/>' +
+                                   '纬度：' + params.value[1].toFixed(2) +
+                                   '</div>';
+                        }
+                    },
+                    geo: {
+                        map: 'china',
+                        roam: true,
+                        zoom: 1.2,
+                        center: [104.5, 36.5],
+                        label: {
+                            show: true,
+                            fontSize: 10,
+                            color: '#333',
+                            emphasis: {
+                                color: '#fff'
+                            }
+                        },
+                        itemStyle: {
+                            areaColor: '#f3f3f3',
+                            borderColor: '#ccc',
+                            borderWidth: 1
+                        },
+                        emphasis: {
+                            itemStyle: {
+                                areaColor: '#91c7ae',
+                                borderColor: '#fff',
+                                borderWidth: 2
+                            }
+                        },
+                        select: {
+                            itemStyle: {
+                                areaColor: '#91c7ae',
+                                borderColor: '#fff',
+                                borderWidth: 2,
+                                shadowColor: 'rgba(0, 0, 0, 0.5)',
+                                shadowBlur: 10
+                            }
+                        }
+                    },
+                    visualMap: {
+                        min: 0,
+                        max: 100,
+                        left: 'right',
+                        top: 'bottom',
+                        orient: 'horizontal',
+                        calculable: true,
+                        inRange: {
+                            color: ['#e0f3f8', '#abd9e9', '#74add1']
+                        },
+                        textStyle: {
+                            color: '#000'
+                        },
+                        show: false
+                    },
+                    series: [
+                    ],
+                    legend: {
+                        show: false,
+                        left: 'left',
+                        top: 'bottom',
+                        textStyle: {
+                            color: '#333'
+                        }
+                    }
+                };
+
+                // 使用配置项设置图表
+                myChart.setOption(option);
+
+                // 响应窗口大小变化
+                window.addEventListener('resize', function() {
+                    myChart.resize();
+                });
+
+                // 初始化地图点击事件
+                myChart.on('click', function(params) {
+                    if (params.componentType === 'geo') {  // 修改为监听地图区域点击
+                        const cityName = params.name;
+                        // 先选中省份
+                        const provinceSelect = document.getElementById('province-select');
+                        const provinceOptions = Array.from(provinceSelect.options);
+                        const targetProvince = provinceOptions.find(option => {
+                            try {
+                                const data = JSON.parse(option.value);
+                                return data.name === cityName;
+                            } catch (e) {
+                                return false;
+                            }
+                        });
+                        
+                        if (targetProvince) {
+                            provinceSelect.value = targetProvince.value;
+                            
+                            // 等待城市选择器更新完成后，选中第一个城市
+                            setTimeout(() => {
+                                const citySelect = document.getElementById('city-select');
+                                if (citySelect.options.length > 1) {  // 如果有城市选项（除了默认选项）
+                                    citySelect.selectedIndex = 1;  // 选择第一个城市
+                                }
+                            }, 100);
+                        }
+
+                        if (cityHomestays[cityName]) {
+                            updateHomestayList(cityName);
+                        }
+                    }
+                });
+            });
+
+        // 添加提示框到 DOM
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        document.body.appendChild(toast);
+
+        // 显示提示信息
+        function showToast(message) {
+            toast.textContent = message;
+            toast.style.display = 'block';
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        // 添加民宿
+        function addHomestay() {
+            const provinceSelect = document.getElementById('province-select');
+            if (!provinceSelect.value) {
+                alert('请选择省份');
+                return;
+            }
+
+            const homestayInput = document.getElementById('homestay-input');
+            const provinceData = JSON.parse(provinceSelect.value);
+            const homestayName = homestayInput.value.trim();
+            
+            if (!homestayName) {
+                alert('请输入民宿名称');
+                return;
+            }
+
+            // 初始化城市的民宿列表
+            if (!cityHomestays[provinceData.name]) {
+                cityHomestays[provinceData.name] = {
+                    provinceData: provinceData,
+                    homestays: []
+                };
+            }
+            
+            // 添加民宿
+            cityHomestays[provinceData.name].homestays.push(homestayName);
+            // 保存到本地存储
+            localStorage.setItem('cityHomestays', JSON.stringify(cityHomestays));
+
+            // 更新显示
+            updateHomestayMarker(provinceData);
+            updateHomestayList(provinceData.name);
+            
+            // 清空输入
+            homestayInput.value = '';
+            showToast('添加成功');
+        }
+
+        // 更新民宿标记
+        function updateHomestayMarker(cityData) {
+            // 如果是新添加的城市，聚焦到对应省份
+            if (cityData) {
+                // 从城市名称中获取省份名称
+                const provinceName = getProvinceFromCity(cityData.name);
+                
+                setTimeout(() => {
+                    // 设置视图中心为该省份的经纬度坐标
+                    myChart.setOption({
+                        geo: {
+                            center: [parseFloat(cityData.log), parseFloat(cityData.lat)],
+                            zoom: 4  // 放大级别
+                        }
+                    });
+
+                    // 高亮显示该省份
+                    myChart.dispatchAction({
+                        type: 'highlight',
+                        geoIndex: 0,
+                        name: provinceName
+                    });
+
+                    // 同时触发选中效果
+                    myChart.dispatchAction({
+                        type: 'select',
+                        geoIndex: 0,
+                        name: provinceName
+                    });
+
+                    // 设置该省份的样式
+                    myChart.setOption({
+                        geo: {
+                            regions: [{
+                                name: provinceName,
+                                itemStyle: {
+                                    areaColor: '#91c7ae',
+                                    borderColor: '#fff',
+                                    borderWidth: 2
+                                }
+                            }]
+                        }
+                    });
+                }, 100);
+            }
+        }
+
+        // 从城市名称中获取省份名称
+        function getProvinceFromCity(cityName) {
+            // 如果城市名称本身就是省份名称，直接返回
+            if (cityName.endsWith('省') || cityName.endsWith('市') || cityName.endsWith('自治区')) {
+                return cityName;
+            }
+            // 遍历所有省份数据找到对应的省份
+            for (const province of rawData) {
+                const cities = getCitiesForProvince(province.name);
+                if (cities.some(city => city.name === cityName)) {
+                    return province.name;
+                }
+            }
+            return cityName; // 如果找不到对应的省份，返回城市名称
+        }
+
+        // 更新民宿列表显示
+        function updateHomestayList(cityName) {
+            const infoContainer = document.getElementById('homestay-info');
+            const listContainer = document.getElementById('homestay-list');
+            const cityTitle = document.getElementById('selected-city');
+            
+            if (cityName && cityHomestays[cityName]) {
+                infoContainer.style.display = 'block';
+                cityTitle.textContent = `${cityName}的民宿列表`;
+                listContainer.innerHTML = cityHomestays[cityName].homestays
+                    .map((homestay, index) => `
+                        <li>
+                            ${homestay}
+                            <button class="delete-btn" 
+                                onclick="removeHomestay('${cityName}', ${index})">
+                                删除
+                            </button>
+                        </li>
+                    `).join('');
+            } else {
+                infoContainer.style.display = 'none';
+            }
+        }
+
+        // 删除民宿
+        function removeHomestay(cityName, index) {
+            if (cityHomestays[cityName]) {
+                cityHomestays[cityName].homestays.splice(index, 1);
+                if (cityHomestays[cityName].homestays.length === 0) {
+                    delete cityHomestays[cityName];
+                    // 保存到本地存储
+                    localStorage.setItem('cityHomestays', JSON.stringify(cityHomestays));
+                    
+                    // 取消该省份的高亮
+                    myChart.dispatchAction({
+                        type: 'downplay',
+                        geoIndex: 0,
+                        name: cityName
+                    });
+                }
+                updateHomestayList(cityName);
+            }
+        }
+
+        // 初始化城市选择器
+        initCitySelect();
+    </script>
+</body>
+</html> 
