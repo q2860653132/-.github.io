@@ -2,7 +2,7 @@
 const GITHUB_CONFIG = {
     owner: 'q2860653132',  // 替换为你的 GitHub 用户名
     repo: 'homestay-map',         // 替换为你的仓库名
-    token: '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'  // 替换为新生成的 token
+    token: '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'  // 替换为新生成的 token
 };
 
 // 从 GitHub Issues 加载数据
